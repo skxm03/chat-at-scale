@@ -1,0 +1,115 @@
+syntax = "proto3";
+
+package messaging.v1;
+
+option go_package = "github.com/skxm03/chat-at-scale/api/proto/messaging/v1;messagingv1";
+
+// MessagingService defines the internal gRPC contract between Gateway and Messaging service.
+service MessagingService {
+  // SendMessage ingests a message from a connected client, validates conversation
+  // membership, assigns a strict per-conversation sequence number, and publishes
+  // the message to Kafka for asynchronous persistence and fan-out.
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+
+  // ValidateMembership checks if a given user is an active participant in a conversation.
+  rpc ValidateMembership(ValidateMembershipRequest) returns (ValidateMembershipResponse);
+
+  // GetConversationMembers retrieves the participant user IDs of a conversation
+  // for message delivery and fan-out routing.
+  rpc GetConversationMembers(GetConversationMembersRequest) returns (GetConversationMembersResponse);
+
+  // SyncGap serves catch-up requests when a client detects a sequence number gap
+  // (e.g. received sequence 105 when expecting 102).
+  rpc SyncGap(SyncGapRequest) returns (SyncGapResponse);
+}
+
+enum MessageType {
+  MESSAGE_TYPE_UNSPECIFIED = 0;
+  MESSAGE_TYPE_TEXT = 1;
+  MESSAGE_TYPE_IMAGE = 2;
+  MESSAGE_TYPE_FILE = 3;
+  MESSAGE_TYPE_SYSTEM = 4;
+}
+
+enum DeliveryStatus {
+  DELIVERY_STATUS_UNSPECIFIED = 0;
+  DELIVERY_STATUS_ACKNOWLEDGED = 1;
+  DELIVERY_STATUS_REJECTED = 2;
+  DELIVERY_STATUS_RATE_LIMITED = 3;
+}
+
+message ChatMessage {
+  string message_id = 1;
+  string conversation_id = 2;
+  int64 sequence_number = 3;
+  string sender_id = 4;
+  string content = 5;
+  MessageType message_type = 6;
+  int64 server_timestamp_ms = 7;
+}
+
+message SendMessageRequest {
+  // Client-generated UUID for deduplication and idempotency
+  string message_id = 1;
+  string conversation_id = 2;
+  string sender_id = 3;
+  string content = 4;
+  MessageType message_type = 5;
+  int64 client_timestamp_ms = 6;
+}
+
+message SendMessageResponse {
+  string message_id = 1;
+  string conversation_id = 2;
+  // Strictly monotonic sequence number per conversation
+  int64 sequence_number = 3;
+  int64 server_timestamp_ms = 4;
+  DeliveryStatus status = 5;
+  string error_message = 6;
+}
+
+message ValidateMembershipRequest {
+  string conversation_id = 1;
+  string user_id = 2;
+}
+
+message ValidateMembershipResponse {
+  bool is_member = 1;
+  string role = 2; // e.g. "member", "admin"
+}
+
+message GetConversationMembersRequest {
+  string conversation_id = 1;
+}
+
+message GetConversationMembersResponse {
+  string conversation_id = 1;
+  repeated string user_ids = 2;
+}
+
+message SyncGapRequest {
+  string conversation_id = 1;
+  string user_id = 2;
+  int64 from_sequence = 3; // inclusive
+  int64 to_sequence = 4;   // inclusive
+  int32 limit = 5;
+}
+
+message SyncGapResponse {
+  string conversation_id = 1;
+  repeated ChatMessage messages = 2;
+  bool has_more = 3;
+}
+
+// KafkaMessageEvent represents the serialized envelope pushed to Kafka 'chat-messages' topic.
+message KafkaMessageEvent {
+  string message_id = 1;
+  string conversation_id = 2;
+  int64 sequence_number = 3;
+  string sender_id = 4;
+  string content = 5;
+  MessageType message_type = 6;
+  int64 server_timestamp_ms = 7;
+  repeated string recipient_ids = 8;
+}
+

@@ -1,0 +1,68 @@
+services:
+    cassandra:
+        image: cassandra:5.0
+        container_name: chat-cassandra
+        ports:
+            - '9042:9042'
+        environment:
+            CASSANDRA_CLUSTER_NAME: chat-at-scale
+            MAX_HEAP_SIZE: 512M
+            HEAP_NEWSIZE: 100M
+        volumes:
+            - cassandra_data:/var/lib/cassandra
+        restart: unless-stopped
+        networks:
+            - chat-network
+
+    kafka:
+        image: apache/kafka:3.8.0
+        container_name: chat-kafka
+        ports:
+            - '9092:9092'
+        environment:
+            # KRaft mode configuration
+            KAFKA_NODE_ID: 1
+            KAFKA_PROCESS_ROLES: broker,controller
+            # Listeners:
+            # - PLAINTEXT for internal communication between Docker containers (e.g. kafka:29092)
+            # - PLAINTEXT_HOST for communication from the host machine (e.g. localhost:9092)
+            # - CONTROLLER for KRaft cluster controller consensus
+            KAFKA_LISTENERS: PLAINTEXT://:29092,PLAINTEXT_HOST://:9092,CONTROLLER://:9093
+            KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+            KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+            KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+            KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+            KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+            # Single-node development replication settings
+            KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+            KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+            KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+            KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+            KAFKA_NUM_PARTITIONS: 4
+            KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+        volumes:
+            - kafka_data:/var/lib/kafka/data
+        restart: unless-stopped
+        networks:
+            - chat-network
+
+    redis:
+        image: redis:7.4-alpine
+        container_name: chat-redis
+        ports:
+            - '6379:6379'
+        command: ['redis-server', '--appendonly', 'yes']
+        volumes:
+            - redis_data:/data
+        restart: unless-stopped
+        networks:
+            - chat-network
+
+volumes:
+    cassandra_data:
+    kafka_data:
+    redis_data:
+
+networks:
+    chat-network:
+        driver: bridge
